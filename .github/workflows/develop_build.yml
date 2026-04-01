@@ -1,4 +1,4 @@
-name: Canary Build (Prerelease)
+name: Canary Build (Debug)
 
 on:
   push:
@@ -61,10 +61,10 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build Prerelease Variant
-        run: ./gradlew assemblePrerelease
+      - name: Build Debug Variant
+        run: ./gradlew assembleDebug
 
-      - name: Sign Prerelease APKs
+      - name: Sign Debug APKs
         env:
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
@@ -73,14 +73,14 @@ jobs:
         run: |
           echo "$SIGNING_KEY" | base64 --decode > release.keystore
           
-          # Sign Standard Prerelease
-          STD_APK=$(find app/build/outputs/apk/prerelease -name "*.apk" ! -name "*-signed.apk" | head -n 1)
+          # Sign Standard Debug
+          STD_APK=$(find app/build/outputs/apk/debug -name "*.apk" ! -name "*-signed.apk" | head -n 1)
           ${ANDROID_HOME}/build-tools/34.0.0/apksigner sign \
             --ks release.keystore \
             --ks-key-alias "$KEY_ALIAS" \
             --ks-pass env:KEY_STORE_PASSWORD \
             --key-pass env:KEY_PASSWORD \
-            --out app/build/outputs/apk/prerelease/app-prerelease-signed.apk \
+            --out app/build/outputs/apk/debug/app-debug-signed.apk \
             "$STD_APK"
 
           rm release.keystore
@@ -89,8 +89,8 @@ jobs:
       - name: Upload Standard Signed Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Capsulyric-Standard-Prerelease-Signed
-          path: app/build/outputs/apk/prerelease/app-prerelease-signed.apk
+          name: Capsulyric-Standard-Debug-Signed
+          path: app/build/outputs/apk/debug/app-debug-signed.apk
 
       - name: Generate Canary Metadata
         id: meta
@@ -170,8 +170,8 @@ jobs:
           body_path: canary_body.md
           target_commitish: develop
           files: |
-            app/build/outputs/apk/prerelease/app-prerelease-signed.apk
-          prerelease: true
+            app/build/outputs/apk/debug/app-debug-signed.apk
+          debug: true
           make_latest: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
