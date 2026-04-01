@@ -195,6 +195,21 @@ class SuperIslandHandler(
         return if (text.length <= maxLength) text else text.take(maxLength) + "..."
     }
 
+    private fun charWeight(c: Char): Int {
+        return when (Character.UnicodeBlock.of(c)) {
+            Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS,
+            Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A,
+            Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B,
+            Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS,
+            Character.UnicodeBlock.HIRAGANA,
+            Character.UnicodeBlock.KATAKANA,
+            Character.UnicodeBlock.HANGUL_SYLLABLES -> 2
+            else -> 1
+        }
+    }
+
+    private fun calculateVisualWeight(text: String): Int = text.sumOf(::charWeight)
+
     private fun updateIcons(metadata: LyricRepository.MediaInfo?, albumArt: Bitmap?, isPlaying: Boolean) {
         val albumArtHash = albumArt?.hashCode() ?: 0
         if (albumArtHash != lastAlbumArtHash) {
@@ -250,6 +265,9 @@ class SuperIslandHandler(
         val subText = if (state.artist.isNotBlank()) "${state.title} - ${state.artist}" else state.title
         val progressPercent = state.progressCurrent
         val albumColor = state.albumColor
+        val lyricWeight = calculateVisualWeight(displayLyric)
+        val fullLyricWeight = calculateVisualWeight(fullLyric)
+        val useNarrowLyricFont = false
 
         val trackChanged = state.title != lastSentTitle || state.artist != lastSentArtist
         val displayLyricChanged = displayLyric != lastSentDisplayLyric
@@ -268,7 +286,8 @@ class SuperIslandHandler(
             logger.d(
                 TAG,
                 "Render rebuild first=$isFirstNotification track=$trackChanged display=$displayLyricChanged full=$fullLyricChanged " +
-                    "playback=$playbackChanged progress=$progressPercent display='${getLogSnippet(displayLyric)}' " +
+                    "playback=$playbackChanged progress=$progressPercent narrow=$useNarrowLyricFont " +
+                    "weight=$lyricWeight/$fullLyricWeight display='${getLogSnippet(displayLyric)}' " +
                     "full='${getLogSnippet(fullLyric)}'"
             )
         }
@@ -409,7 +428,7 @@ class SuperIslandHandler(
                     this.textInfo = com.xzakota.hyper.notification.island.model.TextInfo().apply {
                         title = displayLyric.ifEmpty { "♪" }
                         this.showHighlightColor = showHighlightColor
-                        narrowFont = false
+                        narrowFont = useNarrowLyricFont
                     }
                 }
 
@@ -480,7 +499,8 @@ class SuperIslandHandler(
         logger.d(
             TAG,
             "Render notify first=$notifyAsFirst rebuild=$shouldRebuildNotification colorChanged=$colorChanged " +
-                "progress=$progressPercent title='${getLogSnippet(state.title)}' display='${getLogSnippet(displayLyric)}'"
+                "progress=$progressPercent narrow=$useNarrowLyricFont weight=$lyricWeight/$fullLyricWeight " +
+                "title='${getLogSnippet(state.title)}' display='${getLogSnippet(displayLyric)}'"
         )
         notifyWithNetworkCut(notification, notifyAsFirst)
         if (notifyAsFirst) {
