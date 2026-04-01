@@ -31,7 +31,6 @@ class SuperIslandHandler(
     private val context: Context,
     private val service: LyricService
 ) {
-
     private val manager: NotificationManager? = context.getSystemService(NotificationManager::class.java)
 
     var isRunning = false
@@ -237,7 +236,7 @@ class SuperIslandHandler(
         if (!isRunning) return
         val notification = cachedNotification ?: return
 
-        val displayLyric = state.displayLyric
+        val displayLyric = resolveDisplayLyric(state)
         val subText = if (state.artist.isNotBlank()) "${state.title} - ${state.artist}" else state.title
         val progressPercent = state.progressCurrent
         val albumColor = state.albumColor
@@ -300,7 +299,7 @@ class SuperIslandHandler(
             
             chatInfo {
                 picProfile = avatarKey
-                title = state.fullLyric.ifEmpty { state.title.ifEmpty { "♪" } }
+                title = displayLyric.ifEmpty { state.fullLyric.ifEmpty { state.title.ifEmpty { "♪" } } }
                 content = subText
                 appIconPkg = packageName
                 // picApp was removed or uses appIconPkg in V3 API
@@ -438,7 +437,7 @@ class SuperIslandHandler(
         notification.color = if (cachedActionStyle == "media_controls") 0xFF757575.toInt() else albumColor
         lastAppliedAlbumColor = albumColor
 
-        notification.extras.putString(Notification.EXTRA_TITLE, state.fullLyric.ifEmpty { "Capsulyric" })
+        notification.extras.putString(Notification.EXTRA_TITLE, displayLyric.ifEmpty { state.fullLyric.ifEmpty { "Capsulyric" } })
         notification.extras.putString(Notification.EXTRA_TEXT, subText)
         notification.contentIntent = cachedContentIntent
 
@@ -513,6 +512,45 @@ class SuperIslandHandler(
         return bitmap
     }
 
+    private fun resolveDisplayLyric(state: UIState): String {
+        if (!state.isStatic) return state.displayLyric
+
+        val lyric = state.fullLyric.ifEmpty { state.displayLyric }
+        if (lyric.isBlank()) return lyric
+        if (calculateWeight(lyric) <= STATIC_SUPER_ISLAND_MAX_WEIGHT) return lyric
+
+        return extractByWeight(lyric, STATIC_SUPER_ISLAND_MAX_WEIGHT)
+    }
+
+    private fun extractByWeight(text: String, maxWeight: Int): String {
+        var currentWeight = 0
+        var endIndex = 0
+
+        for (i in text.indices) {
+            currentWeight += charWeight(text[i])
+            if (currentWeight > maxWeight) break
+            endIndex = i + 1
+        }
+
+        if (endIndex <= 0) return ""
+        return text.substring(0, endIndex).trimEnd()
+    }
+
+    private fun calculateWeight(text: String): Int = text.sumOf(::charWeight)
+
+    private fun charWeight(c: Char): Int {
+        return when (Character.UnicodeBlock.of(c)) {
+            Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS,
+            Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A,
+            Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B,
+            Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS,
+            Character.UnicodeBlock.HIRAGANA,
+            Character.UnicodeBlock.KATAKANA,
+            Character.UnicodeBlock.HANGUL_SYLLABLES -> 2
+            else -> 1
+        }
+    }
+
     private fun scaleBitmap(src: Bitmap, targetSize: Int): Bitmap {
         val scaled = if (src.width == targetSize && src.height == targetSize) src 
                      else Bitmap.createScaledBitmap(src, targetSize, targetSize, true)
@@ -568,5 +606,7 @@ class SuperIslandHandler(
     companion object {
         private const val CHANNEL_ID = "lyric_capsule_channel"
         private const val NOTIFICATION_ID = 1001
+        private const val STATIC_SUPER_ISLAND_MAX_CJK_CHARS = 8
+        private const val STATIC_SUPER_ISLAND_MAX_WEIGHT = STATIC_SUPER_ISLAND_MAX_CJK_CHARS * 2
     }
 }
