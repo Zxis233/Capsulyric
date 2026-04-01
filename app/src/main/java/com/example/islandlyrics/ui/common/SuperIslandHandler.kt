@@ -38,7 +38,6 @@ class SuperIslandHandler(
         private set
 
     private var cachedNotification: Notification? = null
-    private var cachedBuilder: Notification.Builder? = null
     
     private val scope = CoroutineScope(Dispatchers.Main + Job())
     
@@ -83,6 +82,7 @@ class SuperIslandHandler(
 
     // Change detection tracking
     private var lastSentDisplayLyric = ""
+    private var lastSentFullLyric = ""
     private var lastSentProgressPercent = -1
     private var lastSentSubText = ""
     private var lastSentIsPlaying = false
@@ -117,6 +117,7 @@ class SuperIslandHandler(
         loadPreferences()
 
         lastSentDisplayLyric = ""
+        lastSentFullLyric = ""
         lastSentProgressPercent = -1
         lastSentSubText = ""
         lastSentIsPlaying = false
@@ -135,13 +136,7 @@ class SuperIslandHandler(
         cachedPlayPauseIcon = null
         cachedNextIcon = null
 
-        cachedBuilder = Notification.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_music_note)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setVisibility(Notification.VISIBILITY_PUBLIC)
-            
-        cachedNotification = cachedBuilder?.build()
+        cachedNotification = createBaseNotification()
     }
 
     fun stop() {
@@ -150,7 +145,6 @@ class SuperIslandHandler(
         prefs.unregisterOnSharedPreferenceChangeListener(prefListener)
         manager?.cancel(NOTIFICATION_ID)
         cachedNotification = null
-        cachedBuilder = null
         
         // Cancel all pending scope jobs
         // But wait, if we cancel the whole scope we might not be able to restart it?
@@ -185,6 +179,20 @@ class SuperIslandHandler(
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
         manager?.createNotificationChannel(channel)
+    }
+
+    private fun createBaseNotification(): Notification {
+        return Notification.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_music_note)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .build()
+    }
+
+    private fun getLogSnippet(text: String, maxLength: Int = 12): String {
+        if (text.isEmpty()) return ""
+        return if (text.length <= maxLength) text else text.take(maxLength) + "..."
     }
 
     private fun updateIcons(metadata: LyricRepository.MediaInfo?, albumArt: Bitmap?, isPlaying: Boolean) {
@@ -235,36 +243,50 @@ class SuperIslandHandler(
 
     fun render(state: UIState) {
         if (!isRunning) return
-        val notification = cachedNotification ?: return
+        val logger = com.example.islandlyrics.core.logging.AppLogger.getInstance()
 
         val displayLyric = state.displayLyric
+        val fullLyric = state.fullLyric
         val subText = if (state.artist.isNotBlank()) "${state.title} - ${state.artist}" else state.title
         val progressPercent = state.progressCurrent
         val albumColor = state.albumColor
 
-        // 1. TRACK SWITCH DETECTION: Clear builder cache to prevent "stuck" metadata on Android 15
         val trackChanged = state.title != lastSentTitle || state.artist != lastSentArtist
-        if (trackChanged && !isFirstNotification) {
-            com.example.islandlyrics.core.logging.AppLogger.getInstance().d("SuperIsland", "Track changed: ${state.title}. Resetting builder.")
-            cachedBuilder = Notification.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_music_note)
-                .setOngoing(true)
-                .setOnlyAlertOnce(true)
-                .setVisibility(Notification.VISIBILITY_PUBLIC)
-            cachedNotification = cachedBuilder?.build()
-            isFirstNotification = true
+        val displayLyricChanged = displayLyric != lastSentDisplayLyric
+        val fullLyricChanged = fullLyric != lastSentFullLyric
+        val playbackChanged = state.isPlaying != lastSentIsPlaying
+        val contentChanged =
+            trackChanged ||
+            displayLyricChanged ||
+            fullLyricChanged ||
+            playbackChanged
+        val notifyAsFirst = isFirstNotification || trackChanged
+        val shouldRebuildNotification = isFirstNotification || contentChanged || cachedNotification == null
+
+        if (shouldRebuildNotification) {
+            cachedNotification = createBaseNotification()
+            logger.d(
+                TAG,
+                "Render rebuild first=$isFirstNotification track=$trackChanged display=$displayLyricChanged full=$fullLyricChanged " +
+                    "playback=$playbackChanged progress=$progressPercent display='${getLogSnippet(displayLyric)}' " +
+                    "full='${getLogSnippet(fullLyric)}'"
+            )
         }
+        val notification = cachedNotification ?: return
 
         // Color changed?
         val colorChanged = albumColor != lastAppliedAlbumColor
 
-        // 2. CONTENT-AWARE THROTTLING
-        val contentChanged = trackChanged || displayLyric != lastSentDisplayLyric || state.isPlaying != lastSentIsPlaying
         val now = System.currentTimeMillis()
         
         if (!isFirstNotification && !colorChanged && !contentChanged) {
             // Only progress changed. Apply 1000ms throttle for Android 15 stability.
             if (now - lastNotifyTime < throttleIntervalMs) {
+                logger.d(
+                    TAG,
+                    "Render skipped by throttle delta=${now - lastNotifyTime}ms progress=$progressPercent " +
+                        "display='${getLogSnippet(displayLyric)}'"
+                )
                 return
             }
         }
@@ -429,6 +451,10 @@ class SuperIslandHandler(
         // Secondary CHANGE DETECTION
         val oldParams = notification.extras.getString("miui.focus.param")
         if (oldParams == newParams && !colorChanged && !isFirstNotification) {
+            logger.d(
+                TAG,
+                "Render skipped by identical params progress=$progressPercent display='${getLogSnippet(displayLyric)}'"
+            )
             return
         }
 
@@ -443,6 +469,7 @@ class SuperIslandHandler(
         notification.contentIntent = cachedContentIntent
 
         lastSentDisplayLyric = displayLyric
+        lastSentFullLyric = fullLyric
         lastSentProgressPercent = progressPercent
         lastSentSubText = subText
         lastSentIsPlaying = state.isPlaying
@@ -450,8 +477,13 @@ class SuperIslandHandler(
         lastSentArtist = state.artist
         lastNotifyTime = System.currentTimeMillis()
 
-        notifyWithNetworkCut(notification, isFirstNotification)
-        if (isFirstNotification) {
+        logger.d(
+            TAG,
+            "Render notify first=$notifyAsFirst rebuild=$shouldRebuildNotification colorChanged=$colorChanged " +
+                "progress=$progressPercent title='${getLogSnippet(state.title)}' display='${getLogSnippet(displayLyric)}'"
+        )
+        notifyWithNetworkCut(notification, notifyAsFirst)
+        if (notifyAsFirst) {
             isFirstNotification = false
         }
     }
@@ -566,6 +598,7 @@ class SuperIslandHandler(
     }
 
     companion object {
+        private const val TAG = "SuperIsland"
         private const val CHANNEL_ID = "lyric_capsule_channel"
         private const val NOTIFICATION_ID = 1001
     }

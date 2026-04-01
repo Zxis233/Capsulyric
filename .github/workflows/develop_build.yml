@@ -87,10 +87,10 @@ jobs:
 
 
       - name: Upload Standard Signed Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: Capsulyric-Standard-Debug-Signed
           path: app/build/outputs/apk/debug/app-debug-signed.apk
+          archive: false
 
       - name: Generate Canary Metadata
         id: meta
