@@ -265,6 +265,8 @@ class SuperIslandHandler(
         val subText = if (state.artist.isNotBlank()) "${state.title} - ${state.artist}" else state.title
         val progressPercent = state.progressCurrent
         val albumColor = state.albumColor
+        val primaryLyricText = displayLyric.ifEmpty { fullLyric.ifEmpty { "♪" } }
+        val secondaryMetaText = subText.ifEmpty { state.title.ifEmpty { "♪" } }
         val lyricWeight = calculateVisualWeight(displayLyric)
         val fullLyricWeight = calculateVisualWeight(fullLyric)
         val useNarrowLyricFont = false
@@ -331,7 +333,7 @@ class SuperIslandHandler(
             enableFloat = false
             updatable = true
             islandFirstFloat = false
-            aodTitle = displayLyric.take(20).ifEmpty { "♪" }
+            aodTitle = primaryLyricText.take(20).ifEmpty { "♪" }
 
             val avatarKey = cachedAvatarIcon?.let { createPicture("miui.focus.pic_avatar", it) }
             val appKey = cachedAppIcon?.let { createPicture("miui.focus.pic_app", it) }
@@ -341,8 +343,8 @@ class SuperIslandHandler(
             
             chatInfo {
                 picProfile = avatarKey
-                title = state.fullLyric.ifEmpty { state.title.ifEmpty { "♪" } }
-                content = subText
+                title = primaryLyricText
+                content = secondaryMetaText
                 appIconPkg = packageName
                 // picApp was removed or uses appIconPkg in V3 API
             }
@@ -426,7 +428,7 @@ class SuperIslandHandler(
                         }
                     }
                     this.textInfo = com.xzakota.hyper.notification.island.model.TextInfo().apply {
-                        title = displayLyric.ifEmpty { "♪" }
+                        title = primaryLyricText
                         this.showHighlightColor = showHighlightColor
                         narrowFont = useNarrowLyricFont
                     }
@@ -483,8 +485,8 @@ class SuperIslandHandler(
         notification.color = if (cachedActionStyle == "media_controls") 0xFF757575.toInt() else albumColor
         lastAppliedAlbumColor = albumColor
 
-        notification.extras.putString(Notification.EXTRA_TITLE, state.fullLyric.ifEmpty { "Capsulyric" })
-        notification.extras.putString(Notification.EXTRA_TEXT, subText)
+        notification.extras.putString(Notification.EXTRA_TITLE, primaryLyricText.ifEmpty { "Capsulyric" })
+        notification.extras.putString(Notification.EXTRA_TEXT, secondaryMetaText)
         notification.contentIntent = cachedContentIntent
 
         lastSentDisplayLyric = displayLyric
@@ -501,6 +503,12 @@ class SuperIslandHandler(
             "Render notify first=$notifyAsFirst rebuild=$shouldRebuildNotification colorChanged=$colorChanged " +
                 "progress=$progressPercent narrow=$useNarrowLyricFont weight=$lyricWeight/$fullLyricWeight " +
                 "title='${getLogSnippet(state.title)}' display='${getLogSnippet(displayLyric)}'"
+        )
+        logger.d(
+            TAG,
+            "Field map aod='${getLogSnippet(primaryLyricText)}' chat='${getLogSnippet(primaryLyricText)}' " +
+                "island='${getLogSnippet(primaryLyricText)}' extra='${getLogSnippet(primaryLyricText)}' " +
+                "meta='${getLogSnippet(secondaryMetaText)}'"
         )
         notifyWithNetworkCut(notification, notifyAsFirst)
         if (notifyAsFirst) {
